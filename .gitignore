@@ -1,0 +1,7 @@
+# Raw downloads (123 MB): re-create with scripts/fetch_data.py
+data/raw/
+# Intermediate layers: re-create with scripts/classify.py and scripts/villages.py; web/data holds the slimmed copies
+data/processed/*.geojson
+
+.DS_Store
+__pycache__/
