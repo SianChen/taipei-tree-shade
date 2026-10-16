@@ -15,9 +15,23 @@ def dump(path, obj):
     path.write_text(json.dumps(obj, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
 
 
-def slim(features, keep):
+# Only the properties the map reads; coordinates rounded to ~1 m (5 decimals) for boundaries
+# and ~0.1 m (6 decimals) for points, which together cut the gzipped download by about a fifth.
+VILLAGE_PROPS = ['code', 'district', 'village', 'population', 'low_density', 'elderly_pct', 'street_trees',
+                 'shade_m2_per_person', 'shade_score', 'shade_rank_from_bottom', 'shade_rank_ties',
+                 'pits_A', 'pits_B', 'pits_C', 'disappeared']
+
+
+def round_coords(coords, digits):
+    if isinstance(coords[0], (int, float)):
+        return [round(coords[0], digits), round(coords[1], digits)]
+    return [round_coords(c, digits) for c in coords]
+
+
+def slim(features, keep, digits):
     return {'type': 'FeatureCollection', 'features': [
-        {'type': 'Feature', 'geometry': f['geometry'],
+        {'type': 'Feature',
+         'geometry': {'type': f['geometry']['type'], 'coordinates': round_coords(f['geometry']['coordinates'], digits)},
          'properties': {short: f['properties'].get(long) for short, long in keep.items()}}
         for f in features]}
 
@@ -36,13 +50,14 @@ def main():
     gone = load(processed / 'disappeared_trees.geojson')['features']
     summary = load(processed / 'summary.json')
 
-    dump(out / 'villages.geojson', villages)
+    web_villages = slim(villages['features'], {k: k for k in VILLAGE_PROPS}, 5)
+    web_villages['meta'] = villages.get('meta', {})
+    dump(out / 'villages.geojson', web_villages)
     dump(out / 'pits.geojson', slim(pits, {
-        'id': 'id', 'c': 'class', 'district': 'district', 'road': 'road',
-        'area': 'area_m2', 'near': 'nearest_tree_m'}))
+        'c': 'class', 'district': 'district', 'road': 'road', 'area': 'area_m2', 'near': 'nearest_tree_m'}, 6))
     dump(out / 'gone.geojson', slim(gone, {
-        'id': 'tree_id', 'district': 'district', 'road': 'road', 'species': 'species',
-        'dbh': 'diameter_cm', 'height': 'height_m', 'surveyed': 'survey_date'}))
+        'district': 'district', 'road': 'road', 'species': 'species',
+        'dbh': 'diameter_cm', 'height': 'height_m', 'surveyed': 'survey_date'}, 6))
 
     downloaded = summary.get('downloaded_at', {})
     vmeta = villages.get('meta', {})

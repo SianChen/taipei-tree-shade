@@ -37,7 +37,7 @@ python3 scripts/score_sample.py    # 抽查填完後，計算各類命中率
 cd web && python3 -m http.server 8765    # 打開 http://127.0.0.1:8765
 ```
 
-網址加 `?v=<里代碼>` 會直接打開那個里，加 `&mode=pits` 或 `&mode=gone` 會切到對應分頁。「查我家附近」需要 HTTPS 或 localhost 才能定位。
+網址加 `?v=<里代碼>` 會直接打開那個里（分享連結就是這個格式）。網址帶 `mode=` 參數時視為誤貼的網址列，會開啟預設的樹蔭頁。「查我家附近」需要 HTTPS 或 localhost 才能定位。
 
 線上版：<https://sianchen.github.io/taipei-tree-shade/>。`web/` 的改動 commit 到 main 之後，執行 `scripts/deploy_web.sh` 就會發布到 `gh-pages` 分支，GitHub Pages 一兩分鐘內更新。
 

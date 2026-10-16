@@ -37,6 +37,10 @@ const padding = () => (isMobile()
   ? { top: 40, left: 20, right: 20, bottom: Math.round(window.innerHeight * 0.48) + 20 }
   : { top: 40, left: 400, right: 40, bottom: 40 });
 
+// Start every download before building the map, so the network overlaps map setup.
+const DATA_FILES = { meta: 'meta.json', villages: 'villages.geojson', pits: 'pits.geojson', gone: 'gone.geojson' };
+const downloads = Object.fromEntries(Object.entries(DATA_FILES).map(([name, file]) => [name, loadJSON(`data/${file}`)]));
+
 const map = new maplibregl.Map({
   container: 'map',
   bounds: TAIPEI,
@@ -62,30 +66,52 @@ async function loadJSON(path) {
   return res.json();
 }
 
-Promise.all([
-  loadJSON('data/villages.geojson'), loadJSON('data/pits.geojson'),
-  loadJSON('data/gone.geojson'), loadJSON('data/meta.json'),
-  new Promise(resolve => map.on('load', resolve)),
-]).then(([villages, pits, gone, meta]) => {
-  state.villages = villages.features;
-  state.pits = pits;
-  state.gone = gone;
-  state.meta = meta;
-  for (const f of state.villages) {
-    f.bbox = bboxOf(f.geometry.coordinates);
-    state.byCode.set(f.properties.code, f);
+// All four files download at once and each is drawn as soon as it (and the map) is ready, in whatever
+// order they arrive. A panel section waits only for the files it needs.
+const PANEL_NEEDS = { shade: ['meta', 'villages'], pits: ['meta', 'villages'], gone: ['meta', 'gone'] };
+const ready = {}, failed = {};
+// Wait for the style only, not the basemap tiles ('load' waits for those), so data draws as early as possible.
+const mapReady = new Promise(resolve => (map.isStyleLoaded() ? resolve() : map.once('style.load', resolve)));
+
+// Share links carry only ?v=. A ?mode= URL was copied from the address bar, so open the default view instead.
+const params = new URLSearchParams(location.search);
+let pendingVillage = params.has('mode') ? null : params.get('v');
+if (params.has('mode')) history.replaceState(null, '', location.pathname);
+
+const ON_ARRIVAL = {
+  meta(meta) { state.meta = meta; renderAbout(); },
+  villages(villages) {
+    state.villages = villages.features;
+    for (const f of state.villages) {
+      f.bbox = bboxOf(f.geometry.coordinates);
+      state.byCode.set(f.properties.code, f);
+    }
+    addVillageLayers(villages);
+  },
+  pits(pits) { state.pits = pits; addPitLayer(pits); },
+  gone(gone) { state.gone = gone; addGoneLayers(gone); },
+};
+
+mapReady.then(() => { state.mapReady = true; bindMapEvents(); setMode('shade'); });
+renderVisits();
+for (const name of Object.keys(DATA_FILES)) {
+  Promise.all([downloads[name], mapReady])
+    .then(([data]) => { ON_ARRIVAL[name](data); ready[name] = true; })
+    .catch(err => { failed[name] = err.message; })
+    .finally(onDataChange);
+}
+renderModeBody();  // shows 載入中… until the shade tab's data arrives
+
+function onDataChange() {
+  if (!state.mapReady) return;  // setMode() renders everything once the map loads
+  applyModeToLayers();
+  renderModeBody();
+  if (pendingVillage && ready.villages && ready.meta) {
+    const v = state.byCode.get(pendingVillage);
+    pendingVillage = null;
+    if (v) selectVillage(v);
   }
-  addLayers(villages);
-  bindMapEvents();
-  renderAbout();
-  renderVisits();
-  const params = new URLSearchParams(location.search);
-  setMode(params.get('mode') || 'shade');
-  const v = state.byCode.get(params.get('v'));
-  if (v) selectVillage(v);
-}).catch(err => {
-  $('#mode-body').innerHTML = `<p>資料載入失敗：${esc(err.message)}</p>`;
-});
+}
 
 function bboxOf(rings) {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -127,19 +153,26 @@ function pitFilter() {
   return ['in', ['get', 'c'], ['literal', Object.keys(state.pitShow).filter(k => state.pitShow[k])]];
 }
 
-function addLayers(villages) {
+const POINT_LAYERS = ['pits', 'gone', 'gone-emoji'];
+
+function addVillageLayers(villages) {
+  // Villages may arrive after the point layers; keep their fills underneath.
+  const below = POINT_LAYERS.find(id => map.getLayer(id));
   map.addSource('villages', { type: 'geojson', data: villages, promoteId: 'code' });
   map.addLayer({ id: 'village-fill', type: 'fill', source: 'villages',
-    paint: { 'fill-color': shadeColor(), 'fill-opacity': shadeOpacity(true) } });
+    paint: { 'fill-color': shadeColor(), 'fill-opacity': shadeOpacity(true) } }, below);
   map.addLayer({ id: 'village-line', type: 'line', source: 'villages',
-    paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.4, 15, 1.4] } });
+    paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.4, 15, 1.4] } }, below);
   map.addLayer({ id: 'village-hover', type: 'line', source: 'villages',
     paint: { 'line-color': '#0b0b0b', 'line-width': 1.4,
-      'line-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.8, 0] } });
+      'line-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.8, 0] } }, below);
   map.addLayer({ id: 'village-selected', type: 'line', source: 'villages', filter: ['==', ['get', 'code'], ''],
-    paint: { 'line-color': '#0b0b0b', 'line-width': 2.5 } });
+    paint: { 'line-color': '#0b0b0b', 'line-width': 2.5 } }, below);
+  bindVillageHover();
+}
 
-  map.addSource('pits', { type: 'geojson', data: state.pits });
+function addPitLayer(pits) {
+  map.addSource('pits', { type: 'geojson', data: pits });
   map.addLayer({ id: 'pits', type: 'circle', source: 'pits', filter: pitFilter(),
     layout: { visibility: 'none', 'circle-sort-key': ['match', ['get', 'c'], 'A', 3, 'B', 2, 1] },
     paint: {
@@ -148,8 +181,11 @@ function addLayers(villages) {
       'circle-stroke-color': ['match', ['get', 'c'], 'A', '#ffffff', 'B', COLORS.pit, COLORS.muted],
       'circle-stroke-width': ['match', ['get', 'c'], 'A', 1, 1.5],
     } });
+  bindPointCursor('pits');
+}
 
-  map.addSource('gone', { type: 'geojson', data: state.gone });
+function addGoneLayers(gone) {
+  map.addSource('gone', { type: 'geojson', data: gone });
   map.addLayer({ id: 'gone', type: 'circle', source: 'gone', maxzoom: GONE_EMOJI_ZOOM, layout: { visibility: 'none' },
     paint: {
       'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 2, 14, 3.5, 17, 7],
@@ -160,6 +196,8 @@ function addLayers(villages) {
   map.addLayer({ id: 'gone-emoji', type: 'symbol', source: 'gone', minzoom: GONE_EMOJI_ZOOM,
     layout: { visibility: 'none', 'icon-image': 'stump', 'icon-allow-overlap': true,
       'icon-size': ['interpolate', ['linear'], ['zoom'], GONE_EMOJI_ZOOM, 0.38, 19, 0.7] } });
+  bindPointCursor('gone');
+  bindPointCursor('gone-emoji');
 }
 
 // Drawn at 128 px so the enlarged icon stays sharp.
@@ -175,6 +213,24 @@ function emojiImage(ch, size = 128) {
 }
 
 function bindMapEvents() {
+  map.on('click', e => {
+    const wanted = state.mode === 'pits' ? ['pits'] : state.mode === 'gone' ? ['gone', 'gone-emoji'] : [];
+    const pointLayers = wanted.filter(id => map.getLayer(id));
+    const box = [[e.point.x - 6, e.point.y - 6], [e.point.x + 6, e.point.y + 6]];
+    const hit = pointLayers.length ? map.queryRenderedFeatures(box, { layers: pointLayers })[0] : null;
+    if (hit) return showPointPopup(hit);
+    if (!ready.villages || !ready.meta) return;
+    const v = findVillage(e.lngLat.lng, e.lngLat.lat);
+    if (v) selectVillage(v, { fly: false, track: true });
+  });
+}
+
+function bindPointCursor(layer) {
+  map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
+}
+
+function bindVillageHover() {
   let hovered = null;
   const tooltip = $('#tooltip');
   map.on('mousemove', 'village-fill', e => {
@@ -197,29 +253,27 @@ function bindMapEvents() {
     hovered = null;
     tooltip.hidden = true;
   });
-  for (const layer of ['pits', 'gone', 'gone-emoji']) {
-    map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
-    map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
-  }
-  map.on('click', e => {
-    const pointLayers = state.mode === 'pits' ? ['pits'] : state.mode === 'gone' ? ['gone', 'gone-emoji'] : [];
-    const box = [[e.point.x - 6, e.point.y - 6], [e.point.x + 6, e.point.y + 6]];
-    const hit = pointLayers.length ? map.queryRenderedFeatures(box, { layers: pointLayers })[0] : null;
-    if (hit) return showPointPopup(hit);
-    const v = findVillage(e.lngLat.lng, e.lngLat.lat);
-    if (v) selectVillage(v, { fly: false, track: true });
-  });
 }
 
 function setMode(mode) {
   if (!['shade', 'pits', 'gone'].includes(mode)) mode = 'shade';
   state.mode = mode;
   document.querySelectorAll('.tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.mode === mode)));
-  map.setPaintProperty('village-fill', 'fill-opacity', shadeOpacity(mode === 'shade'));
-  map.setPaintProperty('village-line', 'line-color', mode === 'shade' ? '#ffffff' : COLORS.muted);
-  map.setLayoutProperty('pits', 'visibility', mode === 'pits' ? 'visible' : 'none');
-  for (const layer of ['gone', 'gone-emoji']) map.setLayoutProperty(layer, 'visibility', mode === 'gone' ? 'visible' : 'none');
+  applyModeToLayers();
   renderModeBody();
+}
+
+// Layers that have not arrived yet are skipped; they pick up the mode when they are added.
+function applyModeToLayers() {
+  const mode = state.mode;
+  if (map.getLayer('village-fill')) {
+    map.setPaintProperty('village-fill', 'fill-opacity', shadeOpacity(mode === 'shade'));
+    map.setPaintProperty('village-line', 'line-color', mode === 'shade' ? '#ffffff' : COLORS.muted);
+  }
+  if (map.getLayer('pits')) map.setLayoutProperty('pits', 'visibility', mode === 'pits' ? 'visible' : 'none');
+  for (const layer of ['gone', 'gone-emoji']) {
+    if (map.getLayer(layer)) map.setLayoutProperty(layer, 'visibility', mode === 'gone' ? 'visible' : 'none');
+  }
 }
 
 function scoreBreaks() {
@@ -235,6 +289,16 @@ function rankList(items, label, value) {
 
 function renderModeBody() {
   const body = $('#mode-body');
+  const needs = PANEL_NEEDS[state.mode];
+  const broken = needs.filter(name => failed[name]);
+  if (broken.length) {
+    body.innerHTML = `<p>資料載入失敗：${esc(broken.map(name => failed[name]).join('、'))}</p>`;
+    return;
+  }
+  if (!needs.every(name => ready[name])) {
+    body.innerHTML = '<p class="hint">載入中…</p>';
+    return;
+  }
   const villages = state.villages.map(f => f.properties);
   if (state.mode === 'shade') {
     const b = scoreBreaks();
@@ -266,7 +330,7 @@ function renderModeBody() {
       ${rankList(mostA, p => `${p.district}${p.village}`, p => `${fmt(p.pits_A)} 個`)}`;
     body.querySelectorAll('input[data-pit]').forEach(input => input.addEventListener('change', () => {
       state.pitShow[input.dataset.pit] = input.checked;
-      map.setFilter('pits', pitFilter());
+      if (map.getLayer('pits')) map.setFilter('pits', pitFilter());
     }));
   } else {
     const roads = new Map();
@@ -317,7 +381,8 @@ function selectVillage(f, { fly = true, track = false } = {}) {
   if (track) trackLookup();
   map.setFilter('village-selected', ['==', ['get', 'code'], p.code]);
   if (fly) map.fitBounds(f.bbox, { padding: padding(), maxZoom: 16 });
-  history.replaceState(null, '', `?v=${encodeURIComponent(p.code)}${state.mode !== 'shade' ? `&mode=${state.mode}` : ''}`);
+  // Only ?v= goes in the address bar, so a copied URL always opens on the default shade tab.
+  history.replaceState(null, '', `?v=${encodeURIComponent(p.code)}`);
 
   const card = $('#village-card');
   card.hidden = false;
@@ -437,6 +502,7 @@ $('#locate-btn').addEventListener('click', () => {
   navigator.geolocation.getCurrentPosition(pos => {
     btn.textContent = '查我家附近';
     const { longitude: lon, latitude: lat } = pos.coords;
+    if (!ready.villages || !ready.meta) { hint.textContent = '資料還在載入，請稍候再按一次。'; return; }
     const v = findVillage(lon, lat);
     if (!v) { hint.textContent = '你目前不在台北市，請直接點地圖上的里。'; return; }
     if (locateMarker) locateMarker.remove();
