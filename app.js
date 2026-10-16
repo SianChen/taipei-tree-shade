@@ -19,6 +19,10 @@ const PIT_TEXT = {
   C: ['C 級', '待確認：15 m 內沒有樹，也可能是資料沒涵蓋'],
 };
 const BASES = ['map', 'photo2024', 'photo2025'];
+// Visitor counts come from GoatCounter (no cookies, no personal data); its public counter is cached for up to 4 hours.
+const GOATCOUNTER = 'https://taipei-tree-shade.goatcounter.com';
+const SITE_PATH = '/taipei-tree-shade/';
+const LOOKUP_PATH = '/taipei-tree-shade/lookup';
 
 const state = { mode: 'shade', villages: [], byCode: new Map(), pits: null, gone: null, meta: {},
   selected: null, pitShow: { A: true, B: true, C: false } };
@@ -73,6 +77,7 @@ Promise.all([
   addLayers(villages);
   bindMapEvents();
   renderAbout();
+  renderVisits();
   const params = new URLSearchParams(location.search);
   setMode(params.get('mode') || 'shade');
   const v = state.byCode.get(params.get('v'));
@@ -184,7 +189,7 @@ function bindMapEvents() {
     const hit = pointLayers.length ? map.queryRenderedFeatures(box, { layers: pointLayers })[0] : null;
     if (hit) return showPointPopup(hit);
     const v = findVillage(e.lngLat.lng, e.lngLat.lat);
-    if (v) selectVillage(v, { fly: false });
+    if (v) selectVillage(v, { fly: false, track: true });
   });
 }
 
@@ -266,7 +271,7 @@ function renderModeBody() {
       map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { padding: padding(), maxZoom: 18 });
     }));
   }
-  body.querySelectorAll('li[data-code]').forEach(li => li.addEventListener('click', () => selectVillage(state.byCode.get(li.dataset.code))));
+  body.querySelectorAll('li[data-code]').forEach(li => li.addEventListener('click', () => selectVillage(state.byCode.get(li.dataset.code), { track: true })));
 }
 
 function rankText(p) {
@@ -279,9 +284,11 @@ function rankText(p) {
     : `全市 ${n} 個里中，樹蔭排第 ${n - (r + ties - 1) + 1} 名${tie}。`;
 }
 
-function selectVillage(f, { fly = true } = {}) {
+// track: count this as a lookup. Only user actions pass it, not a share link opening a village.
+function selectVillage(f, { fly = true, track = false } = {}) {
   const p = f.properties;
   state.selected = p.code;
+  if (track) trackLookup();
   map.setFilter('village-selected', ['==', ['get', 'code'], p.code]);
   if (fly) map.fitBounds(f.bbox, { padding: padding(), maxZoom: 16 });
   history.replaceState(null, '', `?v=${encodeURIComponent(p.code)}${state.mode !== 'shade' ? `&mode=${state.mode}` : ''}`);
@@ -306,6 +313,29 @@ function selectVillage(f, { fly = true } = {}) {
     <p class="hint" id="share-status"></p>`;
   $('#share-btn').addEventListener('click', () => share(p));
   card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// Record one lookup per page load as a virtual pageview, so the public counter can report it per visitor.
+function trackLookup() {
+  if (state.lookupTracked) return;
+  state.lookupTracked = true;
+  const send = () => window.goatcounter?.count?.({ path: LOOKUP_PATH, title: '查詢里的樹蔭' });
+  if (window.goatcounter?.count) send();
+  else window.addEventListener('load', send, { once: true });
+}
+
+async function renderVisits() {
+  const count = async path => {
+    const res = await fetch(`${GOATCOUNTER}/counter/${encodeURI(path)}.json`);
+    return res.ok ? (await res.json()).count : null;
+  };
+  try {
+    const [visits, lookups] = await Promise.all([count(SITE_PATH), count(LOOKUP_PATH)]);
+    if (visits == null) return;
+    const el = $('#visits');
+    el.textContent = lookups != null ? `已有 ${visits} 人造訪，${lookups} 人查過里的樹蔭` : `已有 ${visits} 人造訪`;
+    el.hidden = false;
+  } catch { /* the counter is optional; blocked or offline just hides it */ }
 }
 
 function shareUrl(p) {
@@ -362,7 +392,8 @@ function renderAbout() {
       <li>村里界、底圖、航照：內政部國土測繪中心。人口：臺北市政府民政局，${esc(m.population_month)}。</li>
     </ul>
     <p>樹蔭是估計值：用樹幹胸徑推算樹冠大小（樹冠直徑以公尺計，約為胸徑公分數的 ${esc(m.crown_m_per_dbh_cm)} 倍），只用來比較各里高低。里界多沿道路中線劃，里界 ${esc(m.boundary_buffer_m)} 公尺內的行道樹會同時算給兩側的里。每公頃不到 ${esc(m.low_density_per_ha)} 人的里（山區、郊區、機場、校園）不列入排名。</p>
-    <p>空樹穴和消失的樹是資料比對的結果，尚待現場確認。</p>`;
+    <p>空樹穴和消失的樹是資料比對的結果，尚待現場確認。</p>
+    <p>造訪人數由 <a href="https://www.goatcounter.com/" target="_blank" rel="noopener">GoatCounter</a> 統計，不使用 cookie、不記錄個資，數字最多延遲 4 小時更新。</p>`;
 }
 
 document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
@@ -383,7 +414,7 @@ $('#locate-btn').addEventListener('click', () => {
     if (!v) { hint.textContent = '你目前不在台北市，請直接點地圖上的里。'; return; }
     if (locateMarker) locateMarker.remove();
     locateMarker = new maplibregl.Marker({ color: '#0b0b0b' }).setLngLat([lon, lat]).addTo(map);
-    selectVillage(v);
+    selectVillage(v, { track: true });
   }, err => {
     btn.textContent = '查我家附近';
     hint.textContent = `無法取得位置（${err.message}），請直接點地圖。`;
