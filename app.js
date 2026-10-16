@@ -12,6 +12,7 @@ const COLORS = {
   muted: '#898781',
 };
 const SHADE_OPACITY = 0.66;
+const GONE_EMOJI_ZOOM = 16;
 const SCORE_STEPS = [20, 40, 60, 80];
 const PIT_TEXT = {
   A: ['A 級', '2024 年有樹，現在空了（移除後沒補）'],
@@ -149,11 +150,27 @@ function addLayers(villages) {
     } });
 
   map.addSource('gone', { type: 'geojson', data: state.gone });
-  map.addLayer({ id: 'gone', type: 'circle', source: 'gone', layout: { visibility: 'none' },
+  map.addLayer({ id: 'gone', type: 'circle', source: 'gone', maxzoom: GONE_EMOJI_ZOOM, layout: { visibility: 'none' },
     paint: {
       'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 2, 14, 3.5, 17, 7],
       'circle-color': COLORS.gone, 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 1,
     } });
+  // At street level each vanished tree becomes a 🪵, so a cleared row reads as a row of stumps.
+  map.addImage('stump', emojiImage('🪵'), { pixelRatio: 2 });
+  map.addLayer({ id: 'gone-emoji', type: 'symbol', source: 'gone', minzoom: GONE_EMOJI_ZOOM,
+    layout: { visibility: 'none', 'icon-image': 'stump', 'icon-allow-overlap': true,
+      'icon-size': ['interpolate', ['linear'], ['zoom'], GONE_EMOJI_ZOOM, 0.55, 19, 1] } });
+}
+
+function emojiImage(ch, size = 64) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.font = `${size * 0.8}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(ch, size / 2, size * 0.55);
+  return ctx.getImageData(0, 0, size, size);
 }
 
 function bindMapEvents() {
@@ -179,12 +196,12 @@ function bindMapEvents() {
     hovered = null;
     tooltip.hidden = true;
   });
-  for (const layer of ['pits', 'gone']) {
+  for (const layer of ['pits', 'gone', 'gone-emoji']) {
     map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
     map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
   }
   map.on('click', e => {
-    const pointLayers = state.mode === 'pits' ? ['pits'] : state.mode === 'gone' ? ['gone'] : [];
+    const pointLayers = state.mode === 'pits' ? ['pits'] : state.mode === 'gone' ? ['gone', 'gone-emoji'] : [];
     const box = [[e.point.x - 6, e.point.y - 6], [e.point.x + 6, e.point.y + 6]];
     const hit = pointLayers.length ? map.queryRenderedFeatures(box, { layers: pointLayers })[0] : null;
     if (hit) return showPointPopup(hit);
@@ -200,7 +217,7 @@ function setMode(mode) {
   map.setPaintProperty('village-fill', 'fill-opacity', shadeOpacity(mode === 'shade'));
   map.setPaintProperty('village-line', 'line-color', mode === 'shade' ? '#ffffff' : COLORS.muted);
   map.setLayoutProperty('pits', 'visibility', mode === 'pits' ? 'visible' : 'none');
-  map.setLayoutProperty('gone', 'visibility', mode === 'gone' ? 'visible' : 'none');
+  for (const layer of ['gone', 'gone-emoji']) map.setLayoutProperty(layer, 'visibility', mode === 'gone' ? 'visible' : 'none');
   renderModeBody();
 }
 
@@ -259,9 +276,9 @@ function renderModeBody() {
     }
     const top = [...roads.entries()].sort((a, b) => b[1].length - a[1].length).slice(0, 10);
     body.innerHTML = `
-      <p class="headline">${fmt(state.meta.disappeared_trees)}<small>棵</small></p>
+      <p class="headline">🪵 ${fmt(state.meta.disappeared_trees)}<small>棵</small></p>
       <p>2024 年 11 月的行道樹資料裡有，現在消失、5 公尺內也沒有其他樹的行道樹。</p>
-      <div class="legend"><div class="item"><span class="swatch" style="background:${COLORS.gone}"></span>消失的行道樹</div></div>
+      <div class="legend"><div class="item"><span class="swatch" style="background:${COLORS.gone}"></span>消失的行道樹（放大到街道後顯示為 🪵）</div></div>
       <p class="hint">資料中消失不一定是被砍除，也可能是移植或資料修正。點任一點，可以切換 113、114 年航照比對。</p>
       <h3>消失最多的路段</h3>
       <ol class="rank">${top.map(([road, pts], i) => `<li data-road="${i}"><span>${esc(road)}</span><span class="num">${fmt(pts.length)} 棵</span></li>`).join('')}</ol>`;
@@ -272,6 +289,14 @@ function renderModeBody() {
     }));
   }
   body.querySelectorAll('li[data-code]').forEach(li => li.addEventListener('click', () => selectVillage(state.byCode.get(li.dataset.code), { track: true })));
+}
+
+// Five 🌳, one lit per shade quintile (the same bins as the map colours); none lit when the village has no street trees.
+function treeMeter(p) {
+  if (p.low_density) return '';
+  const lit = p.street_trees === 0 ? 0 : 1 + SCORE_STEPS.filter(t => (p.shade_score ?? 0) >= t).length;
+  const trees = Array.from({ length: 5 }, (_, i) => `<span class="${i < lit ? 'on' : 'off'}">🌳</span>`).join('');
+  return `<div class="tree-meter" role="img" aria-label="樹蔭等級 ${lit} / 5">${trees}<span class="tree-meter-label">樹蔭等級 ${lit} / 5</span></div>`;
 }
 
 function rankText(p) {
@@ -297,14 +322,15 @@ function selectVillage(f, { fly = true, track = false } = {}) {
   card.hidden = false;
   card.innerHTML = `
     <h2>${esc(p.district)} ${esc(p.village)}</h2>
+    ${treeMeter(p)}
     <p class="headline">${p.shade_m2_per_person ?? '—'} m²<small>每人分到的行道樹樹蔭（估計）</small></p>
     <p>${rankText(p)}</p>
     <dl>
-      <dt>行道樹（含里界 ${state.meta.boundary_buffer_m} m 內）</dt><dd>${fmt(p.street_trees)} 棵</dd>
+      <dt>🌳 行道樹（含里界 ${state.meta.boundary_buffer_m} m 內）</dt><dd>${fmt(p.street_trees)} 棵</dd>
       <dt>人口</dt><dd>${fmt(p.population)}</dd>
       <dt>65 歲以上</dt><dd>${p.elderly_pct ?? '—'}%</dd>
-      <dt>空樹穴 A / B / C</dt><dd>${fmt(p.pits_A)} / ${fmt(p.pits_B)} / ${fmt(p.pits_C)}</dd>
-      <dt>2024 年以來消失的樹</dt><dd>${fmt(p.disappeared)} 棵</dd>
+      <dt>🌱 空樹穴 A / B / C</dt><dd>${fmt(p.pits_A)} / ${fmt(p.pits_B)} / ${fmt(p.pits_C)}</dd>
+      <dt>🪵 2024 年以來消失的樹</dt><dd>${fmt(p.disappeared)} 棵</dd>
     </dl>
     <div class="actions">
       <button class="ghost" id="share-btn">分享這個里</button>
@@ -345,10 +371,10 @@ function shareUrl(p) {
 async function share(p) {
   const url = shareUrl(p);
   const text = p.low_density
-    ? `${p.district}${p.village}的樹蔭地圖。查查你家：`
-    : `${p.district}${p.village}每人只分到 ${p.shade_m2_per_person} m² 行道樹樹蔭，${rankText(p)}查查你家：`;
+    ? `把三千棵🌲種回來｜${p.district}${p.village}的樹蔭地圖。查查你家：`
+    : `把三千棵🌲種回來｜${p.district}${p.village}每人只分到 ${p.shade_m2_per_person} m² 行道樹樹蔭，${rankText(p)}查查你家：`;
   if (navigator.share) {
-    try { await navigator.share({ title: '把三千棵樹種回來', text, url }); return; } catch { /* fall through to copy */ }
+    try { await navigator.share({ title: '把三千棵🌲種回來', text, url }); return; } catch { /* fall through to copy */ }
   }
   try {
     await navigator.clipboard.writeText(`${text}${url}`);
