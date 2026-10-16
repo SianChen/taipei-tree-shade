@@ -2,13 +2,16 @@
 
 const TAIPEI = [[121.457, 24.960], [121.666, 25.210]];
 const NLSC = layer => `https://wmts.nlsc.gov.tw/wmts/${layer}/default/GoogleMapsCompatible/{z}/{y}/{x}`;
+// Shade uses a green ramp (ColorBrewer Greens, the lightest steps dropped so the light end stays
+// distinct from the unfilled low-density villages). Vanished trees are violet: it separates from
+// every green step under protan/deutan simulation, unlike orange or red.
 const COLORS = {
-  seq: ['#b7d3f6', '#86b6ef', '#3987e5', '#1c5cab', '#0d366b'],
-  noRank: '#e1e0d9',
+  seq: ['#a1d99b', '#74c476', '#41ab5d', '#238b45', '#005a32'],
   pit: '#eb6834',
-  gone: '#1baf7a',
+  gone: '#6250d6',
   muted: '#898781',
 };
+const SHADE_OPACITY = 0.66;
 const SCORE_STEPS = [20, 40, 60, 80];
 const PIT_TEXT = {
   A: ['A 級', '2024 年有樹，現在空了（移除後沒補）'],
@@ -105,9 +108,13 @@ function findVillage(lon, lat) {
 }
 
 function shadeColor() {
-  return ['case', ['==', ['get', 'low_density'], true], COLORS.noRank,
-    ['step', ['coalesce', ['get', 'shade_score'], 0], COLORS.seq[0],
-      SCORE_STEPS[0], COLORS.seq[1], SCORE_STEPS[1], COLORS.seq[2], SCORE_STEPS[2], COLORS.seq[3], SCORE_STEPS[3], COLORS.seq[4]]];
+  return ['step', ['coalesce', ['get', 'shade_score'], 0], COLORS.seq[0],
+    SCORE_STEPS[0], COLORS.seq[1], SCORE_STEPS[1], COLORS.seq[2], SCORE_STEPS[2], COLORS.seq[3], SCORE_STEPS[3], COLORS.seq[4]];
+}
+
+// Low-density villages are left unfilled: an unranked gray sat too close to the lightest green.
+function shadeOpacity(on) {
+  return on ? ['case', ['==', ['get', 'low_density'], true], 0, SHADE_OPACITY] : 0;
 }
 
 function pitFilter() {
@@ -117,7 +124,7 @@ function pitFilter() {
 function addLayers(villages) {
   map.addSource('villages', { type: 'geojson', data: villages, promoteId: 'code' });
   map.addLayer({ id: 'village-fill', type: 'fill', source: 'villages',
-    paint: { 'fill-color': shadeColor(), 'fill-opacity': 0.62 } });
+    paint: { 'fill-color': shadeColor(), 'fill-opacity': shadeOpacity(true) } });
   map.addLayer({ id: 'village-line', type: 'line', source: 'villages',
     paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.4, 15, 1.4] } });
   map.addLayer({ id: 'village-hover', type: 'line', source: 'villages',
@@ -185,7 +192,7 @@ function setMode(mode) {
   if (!['shade', 'pits', 'gone'].includes(mode)) mode = 'shade';
   state.mode = mode;
   document.querySelectorAll('.tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.mode === mode)));
-  map.setPaintProperty('village-fill', 'fill-opacity', mode === 'shade' ? 0.62 : 0);
+  map.setPaintProperty('village-fill', 'fill-opacity', shadeOpacity(mode === 'shade'));
   map.setPaintProperty('village-line', 'line-color', mode === 'shade' ? '#ffffff' : COLORS.muted);
   map.setLayoutProperty('pits', 'visibility', mode === 'pits' ? 'visible' : 'none');
   map.setLayoutProperty('gone', 'visibility', mode === 'gone' ? 'visible' : 'none');
@@ -215,7 +222,7 @@ function renderModeBody() {
         <div class="ramp">${COLORS.seq.map(c => `<span style="background:${c}"></span>`).join('')}</div>
         <div class="ramp-labels">${b.map(v => `<span>${v < 10 ? v.toFixed(1) : Math.round(v)}</span>`).join('')}</div>
         <div>每人分到的行道樹樹蔭（m²，估計）</div>
-        <div class="item"><span class="swatch square" style="background:${COLORS.noRank}"></span>山區、郊區等低密度里，不排名</div>
+        <div class="item"><span class="swatch square no-rank"></span>山區、郊區等低密度里：不上色、不排名</div>
       </div>
       <h3>每人樹蔭最少的 10 個里</h3>
       ${rankList(least, p => `${p.district}${p.village}`, p => `${p.shade_m2_per_person} m²`)}`;
