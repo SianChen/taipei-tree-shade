@@ -37,9 +37,15 @@ const padding = () => (isMobile()
   ? { top: 40, left: 20, right: 20, bottom: Math.round(window.innerHeight * 0.48) + 20 }
   : { top: 40, left: 400, right: 40, bottom: 40 });
 
-// Start every download before building the map, so the network overlaps map setup.
-const DATA_FILES = { meta: 'meta.json', villages: 'villages.geojson', pits: 'pits.geojson', gone: 'gone.geojson' };
-const downloads = Object.fromEntries(Object.entries(DATA_FILES).map(([name, file]) => [name, loadJSON(`data/${file}`)]));
+// Start downloads before building the map, so the network overlaps map setup. The shade tab's data goes
+// first; the other tabs' data starts once it is in, so it does not compete for bandwidth.
+const downloads = {
+  meta: loadJSON('data/meta.json'),
+  villages: loadJSON('data/villages.topo.json').then(topo => topojson.feature(topo, topo.objects.villages)),
+};
+const afterVillages = downloads.villages.catch(() => {});
+downloads.pits = afterVillages.then(() => loadJSON('data/pits.geojson'));
+downloads.gone = afterVillages.then(() => loadJSON('data/gone.geojson'));
 
 const map = new maplibregl.Map({
   container: 'map',
@@ -94,7 +100,7 @@ const ON_ARRIVAL = {
 
 mapReady.then(() => { state.mapReady = true; bindMapEvents(); setMode('shade'); });
 renderVisits();
-for (const name of Object.keys(DATA_FILES)) {
+for (const name of Object.keys(downloads)) {
   Promise.all([downloads[name], mapReady])
     .then(([data]) => { ON_ARRIVAL[name](data); ready[name] = true; })
     .catch(err => { failed[name] = err.message; })

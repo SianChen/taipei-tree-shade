@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "description": "Build-time helper for web/data/villages.topo.json (see scripts/build_topo.mjs)",
+  "type": "module",
+  "devDependencies": {
+    "topojson-server": "3.0.1"
+  }
+}

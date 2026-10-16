@@ -10,13 +10,15 @@
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
-  <!-- Fetch the data while the map library downloads; app.js reuses these responses. -->
-  <link rel="preload" href="data/villages.geojson" as="fetch" crossorigin="anonymous">
+  <!-- The first view needs only these two; app.js reuses the responses. -->
+  <link rel="preload" href="data/villages.topo.json" as="fetch" crossorigin="anonymous">
   <link rel="preload" href="data/meta.json" as="fetch" crossorigin="anonymous">
-  <link rel="preload" href="data/gone.geojson" as="fetch" crossorigin="anonymous">
-  <link rel="preload" href="data/pits.geojson" as="fetch" crossorigin="anonymous">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
   <link rel="stylesheet" href="style.css">
+  <!-- In the head with defer, so the scripts download early and run in order after parsing. -->
+  <script defer src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script defer src="https://unpkg.com/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+  <script defer src="app.js"></script>
 </head>
 <body>
   <div id="map" aria-label="台北樹蔭地圖"></div>
@@ -59,8 +61,6 @@
     </details>
   </aside>
 
-  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-  <script src="app.js"></script>
   <script data-goatcounter="https://taipei-tree-shade.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>
 </body>
 </html>

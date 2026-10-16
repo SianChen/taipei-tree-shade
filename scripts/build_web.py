@@ -4,6 +4,7 @@ Usage: python3 scripts/build_web.py [--processed data/processed] [--raw data/raw
 """
 import argparse
 import json
+import subprocess
 from pathlib import Path
 
 
@@ -50,9 +51,11 @@ def main():
     gone = load(processed / 'disappeared_trees.geojson')['features']
     summary = load(processed / 'summary.json')
 
-    web_villages = slim(villages['features'], {k: k for k in VILLAGE_PROPS}, 5)
-    web_villages['meta'] = villages.get('meta', {})
-    dump(out / 'villages.geojson', web_villages)
+    # Villages ship as TopoJSON (scripts/build_topo.mjs); the GeoJSON in between stays in data/processed.
+    staged = processed / 'villages_web.geojson'
+    dump(staged, slim(villages['features'], {k: k for k in VILLAGE_PROPS}, 5))
+    subprocess.run(['node', str(Path(__file__).with_name('build_topo.mjs')), str(staged),
+                    str(out / 'villages.topo.json')], check=True)
     dump(out / 'pits.geojson', slim(pits, {
         'c': 'class', 'district': 'district', 'road': 'road', 'area': 'area_m2', 'near': 'nearest_tree_m'}, 6))
     dump(out / 'gone.geojson', slim(gone, {
