@@ -249,7 +249,7 @@ function bindVillageHover() {
     if (state.mode !== 'shade') { tooltip.hidden = true; return; }
     const p = state.byCode.get(f.properties.code).properties;
     tooltip.innerHTML = `<strong>${esc(p.district)}${esc(p.village)}</strong><br>${
-      p.low_density ? '低密度里，不排名' : `每人 ${p.shade_m2_per_person} m² 樹蔭`}`;
+      p.low_density ? '山區里，不排名' : `每人 ${p.shade_m2_per_person} m² 樹蔭`}`;
     tooltip.style.left = `${e.originalEvent.clientX + 14}px`;
     tooltip.style.top = `${e.originalEvent.clientY + 14}px`;
     tooltip.hidden = false;
@@ -315,7 +315,7 @@ function renderModeBody() {
         <div class="ramp">${COLORS.seq.map(c => `<span style="background:${c}"></span>`).join('')}</div>
         <div class="ramp-labels">${b.map(v => `<span>${v < 10 ? v.toFixed(1) : Math.round(v)}</span>`).join('')}</div>
         <div>每人分到的行道樹樹蔭（m²，估計）</div>
-        <div class="item"><span class="swatch square no-rank"></span>山區、郊區等低密度里：不上色、不排名</div>
+        <div class="item"><span class="swatch square no-rank"></span>陽明山、貓空等山區里：不上色、不排名</div>
       </div>
       <h3>每人樹蔭最少的 10 個里</h3>
       ${rankList(least, p => `${p.district}${p.village}`, p => `${p.shade_m2_per_person} m²`)}`;
@@ -371,7 +371,7 @@ function treeMeter(p) {
 }
 
 function rankText(p) {
-  if (p.low_density) return '人口密度低（山區、郊區或大型園區），不列入排名。';
+  if (p.low_density) return '位於山區、每公頃不到 5 人，樹蔭主要來自山林，不列入排名。';
   const n = state.meta.villages_scored, r = p.shade_rank_from_bottom, ties = p.shade_rank_ties || 1;
   const tie = ties > 1 ? `（${ties} 個里並列）` : '';
   // A tied group spans ranks r .. r + ties - 1 from the bottom; counted from the top it starts at n - (r + ties - 1) + 1.
@@ -489,7 +489,7 @@ function renderAbout() {
       <li>樹穴：臺北市政府工務局新建工程處（<a href="https://data.gov.tw/dataset/134908" target="_blank" rel="noopener">開放資料</a>）。</li>
       <li>村里界、底圖、航照：內政部國土測繪中心。人口：臺北市政府民政局，${esc(m.population_month)}。</li>
     </ul>
-    <p>樹蔭是估計值：用樹幹胸徑推算樹冠大小（樹冠直徑以公尺計，約為胸徑公分數的 ${esc(m.crown_m_per_dbh_cm)} 倍），只用來比較各里高低。里界多沿道路中線劃，里界 ${esc(m.boundary_buffer_m)} 公尺內的行道樹會同時算給兩側的里。每公頃不到 ${esc(m.low_density_per_ha)} 人的里（山區、郊區、機場、校園）不列入排名。</p>
+    <p>樹蔭是估計值：用樹幹胸徑推算樹冠大小（樹冠直徑以公尺計，約為胸徑公分數的 ${esc(m.crown_m_per_dbh_cm)} 倍），只用來比較各里高低。里界多沿道路中線劃，里界 ${esc(m.boundary_buffer_m)} 公尺內的行道樹會同時算給兩側的里。每公頃不到 ${esc(m.low_density_per_ha)} 人的里（陽明山、貓空等山區，樹蔭主要來自山林）不列入排名。</p>
     <p>空樹穴和消失的樹是資料比對的結果，尚待現場確認。</p>
     <p>造訪人數由 <a href="https://www.goatcounter.com/" target="_blank" rel="noopener">GoatCounter</a> 統計，不使用 cookie、不記錄個資，數字最多延遲 4 小時更新。</p>`;
 }
