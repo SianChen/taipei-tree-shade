@@ -9,9 +9,10 @@ is inside or within BOUNDARY_BUFFER_M of: people on both sides of a road walk un
 Trees on a boundary are therefore counted more than once across villages. 25 m reaches the
 sidewalks of a 40 m arterial road; the villages with the least shade stay the same from 15 to 30 m.
 
-Villages below LOW_DENSITY_PER_HA residents per hectare (mountains, farmland, airport, campus) get no
-score or rank: their shade comes from forest or large grounds, and a handful of residents makes a
-per-person figure swing wildly.
+Villages below LOW_DENSITY_PER_HA residents per hectare get no score or rank. At 5 that is only the
+eight mountain villages of Yangmingshan and Maokong, whose shade comes from forest. A higher cut-off
+also dropped campus and airport villages (NTU's 學府里, 精忠里) and Shezidao (富洲里), where people
+live with few or no street trees, which the map should show.
 
 Usage: python3 scripts/villages.py [--raw data/raw] [--processed data/processed]
 """
@@ -34,7 +35,7 @@ CROWN_M_PER_DBH_CM = 0.24
 MIN_CROWN_M, MAX_CROWN_M = 1.5, 20.0
 MAX_DBH_CM = 200  # larger values in the source are typos
 BOUNDARY_BUFFER_M = 25.0
-LOW_DENSITY_PER_HA = 20.0
+LOW_DENSITY_PER_HA = 5.0
 EARTH_R = 6371008.8
 M_PER_DEG_LAT = 110574.0
 M_PER_DEG_LON = 111320.0 * math.cos(math.radians(25.05))  # Taipei
