@@ -10,6 +10,11 @@
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <!-- Fetch the data while the map library downloads; app.js reuses these responses. -->
+  <link rel="preload" href="data/villages.geojson" as="fetch" crossorigin="anonymous">
+  <link rel="preload" href="data/meta.json" as="fetch" crossorigin="anonymous">
+  <link rel="preload" href="data/gone.geojson" as="fetch" crossorigin="anonymous">
+  <link rel="preload" href="data/pits.geojson" as="fetch" crossorigin="anonymous">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
   <link rel="stylesheet" href="style.css">
 </head>
