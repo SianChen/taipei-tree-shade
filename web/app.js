@@ -371,10 +371,10 @@ function shareUrl(p) {
 async function share(p) {
   const url = shareUrl(p);
   const text = p.low_density
-    ? `把三千棵🌲種回來｜${p.district}${p.village}的樹蔭地圖。查查你家：`
-    : `把三千棵🌲種回來｜${p.district}${p.village}每人只分到 ${p.shade_m2_per_person} m² 行道樹樹蔭，${rankText(p)}查查你家：`;
+    ? `把三千棵🌳種回來｜${p.district}${p.village}的樹蔭地圖。查查你家：`
+    : `把三千棵🌳種回來｜${p.district}${p.village}每人只分到 ${p.shade_m2_per_person} m² 行道樹樹蔭，${rankText(p)}查查你家：`;
   if (navigator.share) {
-    try { await navigator.share({ title: '把三千棵🌲種回來', text, url }); return; } catch { /* fall through to copy */ }
+    try { await navigator.share({ title: '把三千棵🌳種回來', text, url }); return; } catch { /* fall through to copy */ }
   }
   try {
     await navigator.clipboard.writeText(`${text}${url}`);
