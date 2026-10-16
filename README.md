@@ -85,6 +85,7 @@ cd web && python3 -m http.server 8765    # 打開 http://127.0.0.1:8765
 
 - 分析只用 Python 標準函式庫。座標轉換是自己實作的 TM2 反算，並用 [pyproj](https://pyproj4.github.io/pyproj/) 驗證（2 萬個隨機點，最大誤差 0.06 mm）。Shapefile 也用自己寫的簡易讀取器（`scripts/shapefile_lite.py`）。
 - 網頁地圖：[MapLibre GL JS](https://maplibre.org/) 4.7.1。
+- 造訪人數：[GoatCounter](https://www.goatcounter.com/)，不使用 cookie、不記錄個資。面板顯示的人數讀自它的公開計數器，最多延遲 4 小時。「查過里的樹蔭」只在使用者自己點選里或按「查我家附近」時記一次，從分享連結打開的里不算。
 - [Claude Code](https://claude.com/claude-code)（Anthropic）協助資料探索與程式撰寫。
 
 ## 100 天計畫
