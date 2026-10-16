@@ -159,10 +159,11 @@ function addLayers(villages) {
   map.addImage('stump', emojiImage('🪵'), { pixelRatio: 2 });
   map.addLayer({ id: 'gone-emoji', type: 'symbol', source: 'gone', minzoom: GONE_EMOJI_ZOOM,
     layout: { visibility: 'none', 'icon-image': 'stump', 'icon-allow-overlap': true,
-      'icon-size': ['interpolate', ['linear'], ['zoom'], GONE_EMOJI_ZOOM, 0.55, 19, 1] } });
+      'icon-size': ['interpolate', ['linear'], ['zoom'], GONE_EMOJI_ZOOM, 0.38, 19, 0.7] } });
 }
 
-function emojiImage(ch, size = 64) {
+// Drawn at 128 px so the enlarged icon stays sharp.
+function emojiImage(ch, size = 128) {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d');
