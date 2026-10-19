@@ -2,18 +2,19 @@
 
 const TAIPEI = [[121.457, 24.960], [121.666, 25.210]];
 const NLSC = layer => `https://wmts.nlsc.gov.tw/wmts/${layer}/default/GoogleMapsCompatible/{z}/{y}/{x}`;
-// Shade uses a green ramp (ColorBrewer Greens, the lightest steps dropped so the light end stays
-// distinct from the unfilled low-density villages). Vanished trees are violet: it separates from
-// every green step under protan/deutan simulation, unlike orange or red.
+// Shade uses a green ramp, one step per shade class (meta.shade_breaks_m2): ColorBrewer Greens with the
+// lightest steps dropped so the light end stays distinct from the unfilled unranked villages, and the blue
+// taken out of the two darkest steps: blended onto the cool-gray basemap they otherwise read as slate blue.
+// Vanished trees are violet: it separates from every green step under protan/deutan simulation, unlike orange or red.
 const COLORS = {
-  seq: ['#a1d99b', '#74c476', '#41ab5d', '#238b45', '#005a32'],
+  seq: ['#a1d99b', '#74c476', '#41ab5d', '#238b45', '#0b6e24', '#03470c'],
   pit: '#eb6834',
   gone: '#6250d6',
   muted: '#898781',
 };
-const SHADE_OPACITY = 0.66;
+const SHADE_OPACITY = 0.75;
+const BASEMAP_GRAY = '#eaebed';  // EMAP01's light gray, recovered from a screenshot; the legend blends onto it like the map does
 const GONE_EMOJI_ZOOM = 16;
-const SCORE_STEPS = [20, 40, 60, 80];
 const PIT_TEXT = {
   A: ['A 級', '2024 年有樹，現在空了（移除後沒補）'],
   B: ['B 級', '缺株：同一條路 15 m 內有樹'],
@@ -26,11 +27,13 @@ const SITE_PATH = '/taipei-tree-shade/';
 const LOOKUP_PATH = '/taipei-tree-shade/lookup';
 
 const state = { mode: 'shade', villages: [], byCode: new Map(), pits: null, gone: null, meta: {},
-  selected: null, pitShow: { A: true, B: true, C: false } };
+  selected: null, pitShow: { A: true, B: true, C: false }, rankEnd: 'least' };
 
 const $ = sel => document.querySelector(sel);
 const fmt = n => (n == null ? '—' : Number(n).toLocaleString('zh-TW'));
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// Mountain villages (low density) and hillside villages get their shade from forest the tree lists miss, so they are not ranked.
+const unranked = p => p.low_density || p.hillside;
 const streetView = ([lon, lat]) => `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lon}`;
 const isMobile = () => window.matchMedia('(max-width: 720px)').matches;
 const padding = () => (isMobile()
@@ -145,14 +148,20 @@ function findVillage(lon, lat) {
   });
 }
 
-function shadeColor() {
-  return ['step', ['coalesce', ['get', 'shade_score'], 0], COLORS.seq[0],
-    SCORE_STEPS[0], COLORS.seq[1], SCORE_STEPS[1], COLORS.seq[2], SCORE_STEPS[2], COLORS.seq[3], SCORE_STEPS[3], COLORS.seq[4]];
+// The colour a shade fill shows on the map: the fill at SHADE_OPACITY over the basemap.
+function onMap(hex) {
+  const rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+  const [fill, base] = [rgb(hex), rgb(BASEMAP_GRAY)];
+  return `rgb(${fill.map((v, i) => Math.round(SHADE_OPACITY * v + (1 - SHADE_OPACITY) * base[i])).join(',')})`;
 }
 
-// Low-density villages are left unfilled: an unranked gray sat too close to the lightest green.
+function shadeColor() {
+  return ['step', ['coalesce', ['get', 'shade_class'], 0], COLORS.seq[0], ...COLORS.seq.slice(1).flatMap((c, i) => [i + 1, c])];
+}
+
+// Unranked villages are left unfilled: an unranked gray sat too close to the lightest green.
 function shadeOpacity(on) {
-  return on ? ['case', ['==', ['get', 'low_density'], true], 0, SHADE_OPACITY] : 0;
+  return on ? ['case', ['any', ['==', ['get', 'low_density'], true], ['==', ['get', 'hillside'], true]], 0, SHADE_OPACITY] : 0;
 }
 
 function pitFilter() {
@@ -249,7 +258,7 @@ function bindVillageHover() {
     if (state.mode !== 'shade') { tooltip.hidden = true; return; }
     const p = state.byCode.get(f.properties.code).properties;
     tooltip.innerHTML = `<strong>${esc(p.district)}${esc(p.village)}</strong><br>${
-      p.low_density ? '山區里，不排名' : `每人 ${p.shade_m2_per_person} m² 樹蔭`}`;
+      p.low_density ? '山區里，不排名' : p.hillside ? '靠山的里，不排名' : `每人 ${p.shade_m2_per_person} m² 樹蔭`}`;
     tooltip.style.left = `${e.originalEvent.clientX + 14}px`;
     tooltip.style.top = `${e.originalEvent.clientY + 14}px`;
     tooltip.hidden = false;
@@ -282,11 +291,10 @@ function applyModeToLayers() {
   }
 }
 
-function scoreBreaks() {
-  const scored = state.villages.map(f => f.properties).filter(p => !p.low_density && p.shade_score != null);
-  const values = scored.map(p => p.shade_m2_per_person);
-  const breaks = SCORE_STEPS.map(t => Math.min(...scored.filter(p => p.shade_score >= t).map(p => p.shade_m2_per_person)));
-  return [Math.min(...values), ...breaks, Math.max(...values)];
+// Legend labels: 0, the lower edge of each class above the first, and the highest ranked value.
+function legendLabels() {
+  const max = Math.max(...state.villages.map(f => f.properties).filter(p => !unranked(p)).map(p => p.shade_m2_per_person));
+  return [0, ...state.meta.shade_breaks_m2, max];
 }
 
 function rankList(items, label, value) {
@@ -307,18 +315,30 @@ function renderModeBody() {
   }
   const villages = state.villages.map(f => f.properties);
   if (state.mode === 'shade') {
-    const b = scoreBreaks();
-    const least = villages.filter(p => !p.low_density).sort((a, c) => a.shade_m2_per_person - c.shade_m2_per_person).slice(0, 10);
+    const labels = legendLabels();
+    const ranked = villages.filter(p => !unranked(p)).sort((a, c) => a.shade_m2_per_person - c.shade_m2_per_person);
+    const most = state.rankEnd === 'most';
+    const shown = most ? ranked.slice(-10).reverse() : ranked.slice(0, 10);
     body.innerHTML = `
-      <p>每個里的居民，平均分到多少行道樹樹蔭。顏色越深，樹蔭越多。</p>
+      <p>每個里的居民，平均分到多少樹蔭（行道樹和公園樹木）。顏色越深，樹蔭越多，每一階約占六分之一的里。</p>
       <div class="legend">
-        <div class="ramp">${COLORS.seq.map(c => `<span style="background:${c}"></span>`).join('')}</div>
-        <div class="ramp-labels">${b.map(v => `<span>${v < 10 ? v.toFixed(1) : Math.round(v)}</span>`).join('')}</div>
-        <div>每人分到的行道樹樹蔭（m²，估計）</div>
-        <div class="item"><span class="swatch square no-rank"></span>陽明山、貓空等山區里：不上色、不排名</div>
+        <div class="ramp">${COLORS.seq.map(c => `<span style="background:${onMap(c)}"></span>`).join('')}</div>
+        <div class="ramp-labels">${labels.map(v => `<span>${v < 10 ? v : Math.round(v)}</span>`).join('')}</div>
+        <div>每人分到的樹蔭（m²，估計）</div>
+        <div class="item"><span class="swatch square no-rank"></span>山區和靠山的里：不上色、不排名</div>
       </div>
-      <h3>每人樹蔭最少的 10 個里</h3>
-      ${rankList(least, p => `${p.district}${p.village}`, p => `${p.shade_m2_per_person} m²`)}`;
+      <div class="rank-head">
+        <h3>每人樹蔭${most ? '最多' : '最少'}的 10 個里</h3>
+        <div class="seg compact" role="radiogroup" aria-label="列出樹蔭最少或最多的里">
+          <button role="radio" data-end="least" aria-checked="${!most}">最少</button>
+          <button role="radio" data-end="most" aria-checked="${most}">最多</button>
+        </div>
+      </div>
+      ${rankList(shown, p => `${p.district}${p.village}`, p => `${p.shade_m2_per_person} m²`)}`;
+    body.querySelectorAll('button[data-end]').forEach(btn => btn.addEventListener('click', () => {
+      state.rankEnd = btn.dataset.end;
+      renderModeBody();
+    }));
   } else if (state.mode === 'pits') {
     const c = state.meta.pit_classes || {};
     const total = Object.values(c).reduce((s, n) => s + n, 0);
@@ -362,16 +382,18 @@ function renderModeBody() {
   body.querySelectorAll('li[data-code]').forEach(li => li.addEventListener('click', () => selectVillage(state.byCode.get(li.dataset.code), { track: true })));
 }
 
-// Five 🌳, one lit per shade quintile (the same bins as the map colours); none lit when the village has no street trees.
+// One 🌳 per shade class, lit up to the village's class (the map colour); none lit when the village has no trees at all.
 function treeMeter(p) {
-  if (p.low_density) return '';
-  const lit = p.street_trees === 0 ? 0 : 1 + SCORE_STEPS.filter(t => (p.shade_score ?? 0) >= t).length;
-  const trees = Array.from({ length: 5 }, (_, i) => `<span class="${i < lit ? 'on' : 'off'}">🌳</span>`).join('');
-  return `<div class="tree-meter" role="img" aria-label="樹蔭等級 ${lit} / 5">${trees}<span class="tree-meter-label">樹蔭等級 ${lit} / 5</span></div>`;
+  if (unranked(p)) return '';
+  const levels = COLORS.seq.length;
+  const lit = p.street_trees + p.park_trees === 0 ? 0 : 1 + p.shade_class;
+  const trees = Array.from({ length: levels }, (_, i) => `<span class="${i < lit ? 'on' : 'off'}">🌳</span>`).join('');
+  return `<div class="tree-meter" role="img" aria-label="樹蔭等級 ${lit} / ${levels}">${trees}<span class="tree-meter-label">樹蔭等級 ${lit} / ${levels}</span></div>`;
 }
 
 function rankText(p) {
   if (p.low_density) return '位於山區、每公頃不到 5 人，樹蔭主要來自山林，不列入排名。';
+  if (p.hillside) return `里內 ${p.hillside_pct}% 是山坡保護區，樹蔭主要來自樹木資料沒有涵蓋的山林，不列入排名。`;
   const n = state.meta.villages_scored, r = p.shade_rank_from_bottom, ties = p.shade_rank_ties || 1;
   const tie = ties > 1 ? `（${ties} 個里並列）` : '';
   // A tied group spans ranks r .. r + ties - 1 from the bottom; counted from the top it starts at n - (r + ties - 1) + 1.
@@ -395,10 +417,11 @@ function selectVillage(f, { fly = true, track = false } = {}) {
   card.innerHTML = `
     <h2>${esc(p.district)} ${esc(p.village)}</h2>
     ${treeMeter(p)}
-    <p class="headline">${p.shade_m2_per_person ?? '—'} m²<small>每人分到的行道樹樹蔭（估計）</small></p>
+    <p class="headline">${p.shade_m2_per_person ?? '—'} m²<small>每人分到的樹蔭（估計）</small></p>
     <p>${rankText(p)}</p>
     <dl>
       <dt>🌳 行道樹（含里界 ${state.meta.boundary_buffer_m} m 內）</dt><dd>${fmt(p.street_trees)} 棵</dd>
+      <dt>🌲 公園樹木（含里界 ${state.meta.boundary_buffer_m} m 內）</dt><dd>${fmt(p.park_trees)} 棵</dd>
       <dt>人口</dt><dd>${fmt(p.population)}</dd>
       <dt>65 歲以上</dt><dd>${p.elderly_pct ?? '—'}%</dd>
       <dt>🌱 空樹穴 A / B / C</dt><dd>${fmt(p.pits_A)} / ${fmt(p.pits_B)} / ${fmt(p.pits_C)}</dd>
@@ -442,9 +465,9 @@ function shareUrl(p) {
 
 async function share(p) {
   const url = shareUrl(p);
-  const text = p.low_density
+  const text = unranked(p)
     ? `把三千棵🌳種回來｜${p.district}${p.village}的樹蔭地圖。查查你家：`
-    : `把三千棵🌳種回來｜${p.district}${p.village}每人只分到 ${p.shade_m2_per_person} m² 行道樹樹蔭，${rankText(p)}查查你家：`;
+    : `把三千棵🌳種回來｜${p.district}${p.village}每人只分到 ${p.shade_m2_per_person} m² 樹蔭，${rankText(p)}查查你家：`;
   if (navigator.share) {
     try { await navigator.share({ title: '把三千棵🌳種回來', text, url }); return; } catch { /* fall through to copy */ }
   }
@@ -477,7 +500,7 @@ function showPointPopup(f) {
 
 function setBase(base) {
   for (const b of BASES) map.setLayoutProperty(`base-${b}`, 'visibility', b === base ? 'visible' : 'none');
-  document.querySelectorAll('.seg button').forEach(btn => btn.setAttribute('aria-checked', String(btn.dataset.base === base)));
+  document.querySelectorAll('.basemap .seg button').forEach(btn => btn.setAttribute('aria-checked', String(btn.dataset.base === base)));
 }
 
 function renderAbout() {
@@ -488,8 +511,10 @@ function renderAbout() {
       <li>2024 年 11 月行道樹（${fmt(m.street_trees_2024_11)} 棵）：同一份官方檔案的舊版，由 Wayback Machine 存檔。</li>
       <li>樹穴：臺北市政府工務局新建工程處（<a href="https://data.gov.tw/dataset/134908" target="_blank" rel="noopener">開放資料</a>）。</li>
       <li>村里界、底圖、航照：內政部國土測繪中心。人口：臺北市政府民政局，${esc(m.population_month)}。</li>
+      <li>山坡保護區：臺北市政府都市發展局都市計畫使用分區圖（<a href="https://data.gov.tw/dataset/156197" target="_blank" rel="noopener">開放資料</a>）。</li>
     </ul>
-    <p>樹蔭是估計值：用樹幹胸徑推算樹冠大小（樹冠直徑以公尺計，約為胸徑公分數的 ${esc(m.crown_m_per_dbh_cm)} 倍），只用來比較各里高低。里界多沿道路中線劃，里界 ${esc(m.boundary_buffer_m)} 公尺內的行道樹會同時算給兩側的里。每公頃不到 ${esc(m.low_density_per_ha)} 人的里（陽明山、貓空等山區，樹蔭主要來自山林）不列入排名。</p>
+    <p>樹蔭是估計值：用行道樹和公園樹木的樹幹胸徑推算樹冠大小（樹冠直徑以公尺計，約為胸徑公分數的 ${esc(m.crown_m_per_dbh_cm)} 倍），只用來比較各里高低。里界多沿道路中線劃，里界 ${esc(m.boundary_buffer_m)} 公尺內的樹會同時算給兩側的里。</p>
+    <p>樹木資料只有市府管理的行道樹和公園樹木，不含山林、校園、私人庭院和河濱公園的樹。所以每公頃不到 ${esc(m.low_density_per_ha)} 人的山區里，以及面積 ${esc(m.hillside_zone_pct)}% 以上是都市計畫保護區（山坡地）的靠山里，樹蔭主要來自資料以外的山林，不列入排名。</p>
     <p>空樹穴和消失的樹是資料比對的結果，尚待現場確認。</p>
     <p>造訪人數由 <a href="https://www.goatcounter.com/" target="_blank" rel="noopener">GoatCounter</a> 統計，不使用 cookie、不記錄個資，數字最多延遲 4 小時更新。</p>`;
 }
@@ -498,7 +523,7 @@ document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click
   setMode(b.dataset.mode);
   if (state.selected) selectVillage(state.byCode.get(state.selected), { fly: false });
 }));
-document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => setBase(b.dataset.base)));
+document.querySelectorAll('.basemap .seg button').forEach(b => b.addEventListener('click', () => setBase(b.dataset.base)));
 
 let locateMarker = null;
 $('#locate-btn').addEventListener('click', () => {

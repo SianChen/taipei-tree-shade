@@ -1,6 +1,6 @@
 """Minimal reader for polygon shapefiles (.shp + .dbf), read straight out of a zip archive.
 
-Supports shape type 5 (Polygon) only, which is all the village boundary file uses.
+Supports shape type 5 (Polygon) only, which is all the village boundary and zoning files use.
 """
 import struct
 import zipfile
@@ -10,7 +10,7 @@ def read_dbf(data, encoding):
     n_records, header_len, record_len = struct.unpack('<IHH', data[4:12])
     fields, pos = [], 32
     while data[pos] != 0x0D:
-        name = data[pos:pos + 11].split(b'\0', 1)[0].decode('ascii')
+        name = data[pos:pos + 11].split(b'\0', 1)[0].decode(encoding)
         fields.append((name, data[pos + 16]))
         pos += 32
     records = []
@@ -45,13 +45,28 @@ def read_shp_polygons(data):
         yield [points[a:b] for a, b in zip(parts, parts[1:] + [n_points])]
 
 
-def read_zip(path, stem):
-    """Return [(attributes, rings)] for the shapefile `stem` inside the zip at `path`."""
+def member_name(info, encoding):
+    """The zip member's name. Names not flagged as UTF-8 come back from zipfile as cp437; re-read them in `encoding`."""
+    if info.flag_bits & 0x800:
+        return info.filename
+    return info.filename.encode('cp437').decode(encoding, 'replace')
+
+
+def read_zip(path, stem, encoding=None):
+    """Return [(attributes, rings)] for the shapefile `stem` inside the zip at `path`.
+
+    encoding: the DBF text and member-name encoding, for files without a .cpg (e.g. 'cp950' for Big5).
+    """
     with zipfile.ZipFile(path) as z:
-        names = {n.rsplit('.', 1)[-1].lower(): n for n in z.namelist() if n.rsplit('.', 1)[0] == stem}
-        encoding = 'utf-8'
-        if 'cpg' in names:
-            encoding = z.read(names['cpg']).decode('ascii').strip() or encoding
+        names = {}
+        for info in z.infolist():
+            name = member_name(info, encoding or 'utf-8')
+            if name.rsplit('.', 1)[0] == stem:
+                names[name.rsplit('.', 1)[-1].lower()] = info.filename
+        if encoding is None:
+            encoding = 'utf-8'
+            if 'cpg' in names:
+                encoding = z.read(names['cpg']).decode('ascii').strip() or encoding
         records = read_dbf(z.read(names['dbf']), encoding)
         shapes = list(read_shp_polygons(z.read(names['shp'])))
     return [(attrs, rings) for attrs, rings in zip(records, shapes) if attrs is not None]

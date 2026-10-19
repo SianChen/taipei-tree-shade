@@ -18,8 +18,9 @@ def dump(path, obj):
 
 # Only the properties the map reads; coordinates rounded to ~1 m (5 decimals) for boundaries
 # and ~0.1 m (6 decimals) for points, which together cut the gzipped download by about a fifth.
-VILLAGE_PROPS = ['code', 'district', 'village', 'population', 'low_density', 'elderly_pct', 'street_trees',
-                 'shade_m2_per_person', 'shade_score', 'shade_rank_from_bottom', 'shade_rank_ties',
+VILLAGE_PROPS = ['code', 'district', 'village', 'population', 'low_density', 'hillside', 'hillside_pct',
+                 'elderly_pct', 'street_trees', 'park_trees',
+                 'shade_m2_per_person', 'shade_class', 'shade_rank_from_bottom', 'shade_rank_ties',
                  'pits_A', 'pits_B', 'pits_C', 'disappeared']
 
 
@@ -70,6 +71,8 @@ def main():
         'villages_scored': vmeta.get('villages_scored'),
         'boundary_buffer_m': vmeta.get('boundary_buffer_m'),
         'low_density_per_ha': vmeta.get('low_density_per_ha'),
+        'hillside_zone_pct': vmeta.get('hillside_zone_pct'),
+        'shade_breaks_m2': vmeta.get('shade_breaks_m2'),
         'crown_m_per_dbh_cm': vmeta.get('crown_m_per_dbh_cm'),
         'villages_total': len(villages['features']),
         'pit_classes': summary['pit_classes'],

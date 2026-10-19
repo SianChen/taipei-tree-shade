@@ -46,6 +46,11 @@ SOURCES = {
         'dataset': 'https://data.taipei/dataset/detail?id=a6394e3f-3514-4542-87bd-de4310a40db3',
         'note': '臺北市各里人口數按年齡分，112 年迄今每月（活動頁 #6 提供）',
     },
+    'zoning_main.zip': {
+        'url': 'https://data.taipei/api/dataset/3bab0a01-7936-4218-8cb5-f74dfcb43dda/resource/10196e7d-2460-4b8a-b1d2-84001d09d7a4/download',
+        'dataset': 'https://data.gov.tw/dataset/156197',
+        'note': '臺北市都市計畫使用分區圖：全市主要計畫（都發局，SHP，Big5）；data.taipei 上的資料，非 #1 題目列出',
+    },
 }
 
 
