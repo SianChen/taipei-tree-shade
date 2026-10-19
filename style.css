@@ -107,6 +107,10 @@ ol.rank .num { font-variant-numeric: tabular-nums; color: var(--text-secondary);
 .seg { display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
 .seg button { border: 0; padding: 6px 8px; background: none; font: inherit; cursor: pointer; color: var(--text-secondary); }
 .seg button[aria-checked="true"] { background: var(--accent); color: #fff; }
+.seg.compact button { padding: 3px 10px; font-size: 13px; }
+
+.rank-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 16px 0 6px; }
+.rank-head h3 { margin: 0; }
 
 .about { font-size: 13px; color: var(--text-secondary); }
 .about summary { cursor: pointer; }
