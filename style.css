@@ -1,7 +1,9 @@
 :root {
   color-scheme: light;
-  --surface: #fcfcfb;
-  --page: #f9f9f7;
+  --surface: #fbf9f3;
+  --page: #f6f4ec;
+  --soft: #edf3e6;
+  --mascot-ring: #5c9e64;
   --text-primary: #0b0b0b;
   --text-secondary: #52514e;
   --text-muted: #898781;
@@ -17,12 +19,15 @@
   --seq-5: #005a32;
   --pit: #eb6834;
   --gone: #6250d6;
+  --font-round: "Huninn", system-ui, -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
 }
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme="light"])) {
     color-scheme: dark;
-    --surface: #1a1a19;
-    --page: #0d0d0d;
+    --surface: #1d1c18;
+    --page: #0f0e0c;
+    --soft: #232b20;
+    --mascot-ring: #3f7a47;
     --text-primary: #f0efec;
     --text-secondary: #c3c2b7;
     --grid: #2c2c2a;
@@ -42,17 +47,19 @@ body {
 #map { position: fixed; inset: 0; }
 
 #panel {
-  position: fixed; top: 16px; left: 16px; bottom: 16px; width: 360px;
+  position: fixed; top: 16px; left: 16px; bottom: 16px; width: 372px;
   overflow-y: auto; padding: 20px;
-  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 20px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
   display: flex; flex-direction: column; gap: 16px;
 }
-h1 { font-size: 22px; margin: 0; }
+/* Huninn has one weight; normal weight keeps the browser from faking a bold. */
+h1, h2, h3, .headline, .big-num { font-family: var(--font-round); font-weight: 400; }
+h1 { font-size: 23px; margin: 0; }
 .sub { margin: 4px 0 0; color: var(--text-secondary); }
 .visits { margin: 6px 0 0; font-size: 13px; color: var(--text-secondary); }
 h2 { font-size: 17px; margin: 0 0 8px; }
-h3 { font-size: 14px; margin: 16px 0 6px; color: var(--text-secondary); font-weight: 600; }
+h3 { font-size: 15px; margin: 16px 0 6px; color: var(--text-secondary); }
 p { margin: 0 0 8px; line-height: 1.55; }
 .hint { color: var(--text-muted); font-size: 13px; margin: 6px 0 0; }
 
@@ -67,12 +74,8 @@ button.primary {
   width: 100%; padding: 10px; border: 0; border-radius: 8px; cursor: pointer;
   background: var(--accent); color: #fff; font: inherit; font-weight: 600;
 }
-button.ghost {
-  padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
-  background: none; color: var(--text-primary); font: inherit; font-size: 13px;
-}
 
-.headline { font-size: 28px; font-weight: 700; margin: 0; }
+.headline { font-size: 30px; margin: 0; }
 .tree-meter { display: flex; align-items: center; gap: 2px; font-size: 22px; margin: 0 0 6px; }
 .tree-meter .off { filter: grayscale(1); opacity: 0.22; }
 .tree-meter-label { font-size: 13px; color: var(--text-secondary); margin-left: 8px; }
@@ -96,11 +99,66 @@ ol.rank li {
 ol.rank li:hover { background: var(--page); }
 ol.rank .num { font-variant-numeric: tabular-nums; color: var(--text-secondary); white-space: nowrap; }
 
-#village-card { border-top: 1px solid var(--grid); padding-top: 16px; }
-#village-card dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 8px 0 12px; font-size: 14px; }
-#village-card dt { color: var(--text-secondary); }
-#village-card dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
-#village-card .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+#village-card { border-top: 1px solid var(--grid); padding-top: 16px; display: flex; flex-direction: column; gap: 14px; }
+#village-card p { margin: 0; }
+#village-card h2 { font-size: 30px; margin: 0; line-height: 1.2; }
+#village-card h2 small { font-family: system-ui, -apple-system, "PingFang TC", "Noto Sans TC", sans-serif; font-size: 15px; color: var(--text-secondary); margin-left: 10px; }
+.vc-hero { display: flex; align-items: center; gap: 16px; }
+.mascot {
+  flex: none; width: 112px; height: auto; aspect-ratio: 264 / 357; object-fit: cover;
+  border: 4px solid var(--mascot-ring); border-radius: 18px; background: var(--soft);
+}
+.mascot.sticker { object-fit: contain; padding: 16px 10px; }
+.mascot.pop { animation: mascot-pop 0.5s cubic-bezier(0.3, 1.5, 0.5, 1) both; }
+@keyframes mascot-pop {
+  from { transform: scale(0.6) rotate(-6deg); opacity: 0; }
+  60% { transform: scale(1.05) rotate(2deg); opacity: 1; }
+  to { transform: none; }
+}
+.vc-hero .tree-meter { flex-wrap: wrap; gap: 1px; font-size: 16px; margin: 0 0 6px; }
+.vc-hero .tree-meter-label { margin-left: 6px; }
+.big-num { font-size: 48px; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.big-num small { font-size: 18px; margin-left: 6px; color: var(--text-secondary); }
+#village-card .big-label { font-size: 14px; color: var(--text-secondary); margin-top: 4px; }
+.vc-box { background: var(--soft); border-radius: 14px; padding: 12px 14px; }
+.vc-icons { display: flex; align-items: flex-end; gap: 3px; font-size: 24px; line-height: 1; margin-bottom: 8px; color: var(--text-muted); }
+.vc-icons .tree { margin-right: 6px; }
+.vc-icons svg { width: 13px; height: 18px; fill: currentColor; }
+.vc-rank { font-size: 15px; line-height: 1.5; }
+.vc-rank span { white-space: nowrap; }  /* wrap only at the comma */
+.vc-rank b { font-size: 17px; }
+#village-card .vc-rank-sub { font-size: 13px; color: var(--text-secondary); margin-top: 2px; }
+.vc-stats {
+  display: grid; grid-template-columns: 1.2fr 1fr; gap: 10px 16px; margin: 0;
+  padding-top: 14px; border-top: 1px solid var(--grid); font-size: 14px;
+}
+.vc-stats div { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+.vc-stats dt { color: var(--text-secondary); font-size: 13px; }
+.vc-stats dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#village-card .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 4px; }
+.actions .primary, .actions .outline {
+  display: block; padding: 12px 8px; border-radius: 12px; text-align: center;
+  font: inherit; font-size: 15px; font-weight: 600; text-decoration: none;
+}
+.outline { border: 1.5px solid var(--accent); color: var(--accent); background: none; }
+#share-status:empty { display: none; }
+
+/* The sticker that hops up where a village was picked. */
+.map-pop { pointer-events: none; }
+.map-pop img { display: block; transform-origin: 50% 100%; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.25));
+  animation: bird-pop 1.7s cubic-bezier(0.3, 1.3, 0.5, 1) forwards; }
+@keyframes bird-pop {
+  0% { transform: translateY(10px) scale(0.3); opacity: 0; }
+  16% { transform: translateY(-8px) scale(1.08); opacity: 1; }
+  26% { transform: none; }
+  38% { transform: translateY(-6px); }
+  48% { transform: none; }
+  78% { transform: none; opacity: 1; }
+  100% { transform: translateY(-16px); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mascot.pop { animation: none; }
+}
 
 .basemap { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .basemap .label { color: var(--text-secondary); }
@@ -126,15 +184,25 @@ a { color: var(--link); }
 }
 
 .maplibregl-popup-content { font: 14px/1.5 system-ui, -apple-system, "PingFang TC", sans-serif; color: #0b0b0b; padding: 12px 14px; }
-.maplibregl-popup-content h4 { margin: 0 0 4px; font-size: 15px; }
+.maplibregl-popup-content h4 { margin: 0 0 4px; font: 16px var(--font-round); }
 .maplibregl-popup-content p { margin: 0 0 6px; }
 .maplibregl-popup-content .links { display: flex; gap: 10px; flex-wrap: wrap; font-size: 13px; }
 .maplibregl-popup-content button { border: 0; background: none; color: #1b7a3a; padding: 0; font: inherit; cursor: pointer; text-decoration: underline; }
 
+.sheet-handle { display: none; }
+
 @media (max-width: 720px) {
   #panel {
     top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 48vh;
-    border-radius: 12px 12px 0 0; padding: 16px;
+    border-radius: 20px 20px 0 0; padding: 16px; transition: max-height 0.25s ease;
   }
-  h1 { font-size: 19px; }
+  #panel.expanded { max-height: 88vh; }
+  /* Stays at the top of the scrolling sheet; tapping it expands or collapses the sheet. */
+  .sheet-handle {
+    display: block; position: sticky; top: -16px; z-index: 1; flex: none;
+    height: 24px; margin: -16px -16px -8px; padding: 0; border: 0; cursor: pointer; background: var(--surface);
+  }
+  .sheet-handle::after { content: ""; display: block; width: 40px; height: 5px; margin: 0 auto; border-radius: 3px; background: var(--baseline); }
+  h1 { font-size: 20px; }
+  .mascot { width: 120px; }
 }

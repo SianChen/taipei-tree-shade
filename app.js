@@ -15,12 +15,20 @@ const COLORS = {
 const SHADE_OPACITY = 0.75;
 const BASEMAP_GRAY = '#eaebed';  // EMAP01's light gray, recovered from a screenshot; the legend blends onto it like the map does
 const GONE_EMOJI_ZOOM = 16;
+const PIT_EMOJI_ZOOM = 16;
 const PIT_TEXT = {
   A: ['A 級', '2024 年有樹，現在空了（移除後沒補）'],
   B: ['B 級', '缺株：同一條路 15 m 內有樹'],
   C: ['C 級', '待確認：15 m 內沒有樹，也可能是資料沒涵蓋'],
 };
 const BASES = ['map', 'photo2024', 'photo2025'];
+// The 五色鳥 in web/img/shade-N.webp, one scene per shade level (1 = least shade); cut by scripts/cut_mascot.py.
+const SHADE_SCENES = ['在大太陽下冒汗、拿扇子搧風', '縮在一片小葉子下', '站在細樹枝上，半曬半蔭',
+  '在樹蔭裡站著，表情放鬆', '在樹枝上打盹', '在濃密樹冠裡睡覺，旁邊有樹洞'];
+// The sticker (web/img/bird-*.webp) that hops up on the map when a village is picked, by shade level.
+// Unranked villages get the wave: no mood, since their shade is not measured.
+const LEVEL_STICKERS = ['hot', 'worried', 'wave', 'laugh', 'sparkle', 'sleep'];
+const PERSON_ICON = '<svg viewBox="0 0 13 18"><circle cx="6.5" cy="4" r="3.5"/><path d="M0 18c0-4.4 2.9-8 6.5-8s6.5 3.6 6.5 8z"/></svg>';
 // Visitor counts come from GoatCounter (no cookies, no personal data); its public counter is cached for up to 4 hours.
 const GOATCOUNTER = 'https://taipei-tree-shade.goatcounter.com';
 const SITE_PATH = '/taipei-tree-shade/';
@@ -36,9 +44,10 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const unranked = p => p.low_density || p.hillside;
 const streetView = ([lon, lat]) => `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lon}`;
 const isMobile = () => window.matchMedia('(max-width: 720px)').matches;
+const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const padding = () => (isMobile()
   ? { top: 40, left: 20, right: 20, bottom: Math.round(window.innerHeight * 0.48) + 20 }
-  : { top: 40, left: 400, right: 40, bottom: 40 });
+  : { top: 40, left: 412, right: 40, bottom: 40 });
 
 // Start downloads before building the map, so the network overlaps map setup. The shade tab's data goes
 // first; the other tabs' data starts once it is in, so it does not compete for bandwidth.
@@ -110,6 +119,11 @@ for (const name of Object.keys(downloads)) {
     .finally(onDataChange);
 }
 renderModeBody();  // shows 載入中… until the shade tab's data arrives
+// Fetch the mascot images once the data is in, so a picked village's bird shows without a wait.
+Promise.allSettled(Object.values(downloads)).then(() => {
+  for (let level = 1; level <= SHADE_SCENES.length; level++) new Image().src = `img/shade-${level}.webp`;
+  for (const name of LEVEL_STICKERS) new Image().src = `img/bird-${name}.webp`;
+});
 
 function onDataChange() {
   if (!state.mapReady) return;  // setMode() renders everything once the map loads
@@ -168,7 +182,8 @@ function pitFilter() {
   return ['in', ['get', 'c'], ['literal', Object.keys(state.pitShow).filter(k => state.pitShow[k])]];
 }
 
-const POINT_LAYERS = ['pits', 'gone', 'gone-emoji'];
+const POINT_LAYERS = ['pits', 'pits-emoji', 'gone', 'gone-emoji'];
+const PIT_LAYERS = ['pits', 'pits-emoji'];
 
 function addVillageLayers(villages) {
   // Villages may arrive after the point layers; keep their fills underneath.
@@ -188,15 +203,24 @@ function addVillageLayers(villages) {
 
 function addPitLayer(pits) {
   map.addSource('pits', { type: 'geojson', data: pits });
-  map.addLayer({ id: 'pits', type: 'circle', source: 'pits', filter: pitFilter(),
-    layout: { visibility: 'none', 'circle-sort-key': ['match', ['get', 'c'], 'A', 3, 'B', 2, 1] },
+  const sortKey = ['match', ['get', 'c'], 'A', 3, 'B', 2, 1];
+  map.addLayer({ id: 'pits', type: 'circle', source: 'pits', filter: pitFilter(), maxzoom: PIT_EMOJI_ZOOM,
+    layout: { visibility: 'none', 'circle-sort-key': sortKey },
     paint: {
       'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 2, 14, 3.5, 17, 7],
       'circle-color': ['match', ['get', 'c'], 'A', COLORS.pit, '#ffffff'],
       'circle-stroke-color': ['match', ['get', 'c'], 'A', '#ffffff', 'B', COLORS.pit, COLORS.muted],
       'circle-stroke-width': ['match', ['get', 'c'], 'A', 1, 1.5],
     } });
-  bindPointCursor('pits');
+  // At street level each empty pit becomes a 🌱 on its class's disc: what can be planted again, against the 🪵 of what was lost.
+  for (const [c, fill, stroke] of [['A', COLORS.pit, '#ffffff'], ['B', '#ffffff', COLORS.pit], ['C', '#ffffff', COLORS.muted]]) {
+    map.addImage(`sprout-${c}`, emojiImage('🌱', { fill, stroke }), { pixelRatio: 2 });
+  }
+  map.addLayer({ id: 'pits-emoji', type: 'symbol', source: 'pits', filter: pitFilter(), minzoom: PIT_EMOJI_ZOOM,
+    layout: { visibility: 'none', 'icon-image': ['concat', 'sprout-', ['get', 'c']], 'icon-allow-overlap': true,
+      'symbol-sort-key': sortKey,
+      'icon-size': ['interpolate', ['linear'], ['zoom'], PIT_EMOJI_ZOOM, 0.34, 19, 0.6] } });
+  PIT_LAYERS.forEach(bindPointCursor);
 }
 
 function addGoneLayers(gone) {
@@ -215,12 +239,21 @@ function addGoneLayers(gone) {
   bindPointCursor('gone-emoji');
 }
 
-// Drawn at 128 px so the enlarged icon stays sharp.
-function emojiImage(ch, size = 128) {
+// Drawn at 128 px so the enlarged icon stays sharp. With a disc ({ fill, stroke }) the emoji sits smaller on a ringed circle.
+function emojiImage(ch, disc = null, size = 128) {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d');
-  ctx.font = `${size * 0.8}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+  if (disc) {
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, size * 0.43, 0, 2 * Math.PI);
+    ctx.fillStyle = disc.fill;
+    ctx.fill();
+    ctx.lineWidth = size * 0.08;
+    ctx.strokeStyle = disc.stroke;
+    ctx.stroke();
+  }
+  ctx.font = `${size * (disc ? 0.52 : 0.8)}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(ch, size / 2, size * 0.55);
@@ -229,14 +262,14 @@ function emojiImage(ch, size = 128) {
 
 function bindMapEvents() {
   map.on('click', e => {
-    const wanted = state.mode === 'pits' ? ['pits'] : state.mode === 'gone' ? ['gone', 'gone-emoji'] : [];
+    const wanted = state.mode === 'pits' ? PIT_LAYERS : state.mode === 'gone' ? ['gone', 'gone-emoji'] : [];
     const pointLayers = wanted.filter(id => map.getLayer(id));
     const box = [[e.point.x - 6, e.point.y - 6], [e.point.x + 6, e.point.y + 6]];
     const hit = pointLayers.length ? map.queryRenderedFeatures(box, { layers: pointLayers })[0] : null;
     if (hit) return showPointPopup(hit);
     if (!ready.villages || !ready.meta) return;
     const v = findVillage(e.lngLat.lng, e.lngLat.lat);
-    if (v) selectVillage(v, { fly: false, track: true });
+    if (v) selectVillage(v, { fly: false, track: true, at: e.lngLat });
   });
 }
 
@@ -285,7 +318,9 @@ function applyModeToLayers() {
     map.setPaintProperty('village-fill', 'fill-opacity', shadeOpacity(mode === 'shade'));
     map.setPaintProperty('village-line', 'line-color', mode === 'shade' ? '#ffffff' : COLORS.muted);
   }
-  if (map.getLayer('pits')) map.setLayoutProperty('pits', 'visibility', mode === 'pits' ? 'visible' : 'none');
+  for (const layer of PIT_LAYERS) {
+    if (map.getLayer(layer)) map.setLayoutProperty(layer, 'visibility', mode === 'pits' ? 'visible' : 'none');
+  }
   for (const layer of ['gone', 'gone-emoji']) {
     if (map.getLayer(layer)) map.setLayoutProperty(layer, 'visibility', mode === 'gone' ? 'visible' : 'none');
   }
@@ -351,12 +386,12 @@ function renderModeBody() {
             <span class="swatch" style="${k === 'A' ? `background:${COLORS.pit}` : `border:2px solid ${k === 'B' ? COLORS.pit : COLORS.muted}`}"></span>
             <span><strong>${PIT_TEXT[k][0]} ${fmt(c[k])}</strong>　${PIT_TEXT[k][1]}</span></label>`).join('')}
       </div>
-      <p class="hint">資料比對結果，尚待現場確認。點任一點可開街景或切換航照。</p>
+      <p class="hint">放大到街道後，每個空樹穴顯示為 🌱。資料比對結果，尚待現場確認。點任一點可開街景或切換航照。</p>
       <h3>A 級空樹穴最多的 10 個里</h3>
       ${rankList(mostA, p => `${p.district}${p.village}`, p => `${fmt(p.pits_A)} 個`)}`;
     body.querySelectorAll('input[data-pit]').forEach(input => input.addEventListener('change', () => {
       state.pitShow[input.dataset.pit] = input.checked;
-      if (map.getLayer('pits')) map.setFilter('pits', pitFilter());
+      for (const layer of PIT_LAYERS) if (map.getLayer(layer)) map.setFilter(layer, pitFilter());
     }));
   } else {
     const roads = new Map();
@@ -391,19 +426,92 @@ function treeMeter(p) {
   return `<div class="tree-meter" role="img" aria-label="樹蔭等級 ${lit} / ${levels}">${trees}<span class="tree-meter-label">樹蔭等級 ${lit} / ${levels}</span></div>`;
 }
 
+// City rank counted from whichever end is nearer, with the share of ranked villages it has more (or less) shade than.
+// A tied group spans ranks r .. r + ties - 1 from the bottom; counted from the top it starts at n - (r + ties - 1) + 1.
+// The share is floored, so "多於 76%" is never claimed for 75.9%.
+function cityRank(p) {
+  const n = state.meta.villages_scored, r = p.shade_rank_from_bottom, ties = p.shade_rank_ties || 1;
+  return r <= n / 2
+    ? { n, ties, bottom: true, rank: r, pct: Math.floor(100 * (n - (r + ties - 1)) / n) }
+    : { n, ties, bottom: false, rank: n - (r + ties - 1) + 1, pct: Math.floor(100 * (r - 1) / n) };
+}
+
+// The same count within the district, from the ranked villages' values.
+function districtRank(p) {
+  const peers = state.villages.map(f => f.properties).filter(q => q.district === p.district && !unranked(q));
+  const above = peers.filter(q => q.shade_m2_per_person > p.shade_m2_per_person).length;
+  const below = peers.filter(q => q.shade_m2_per_person < p.shade_m2_per_person).length;
+  const n = peers.length, ties = n - above - below;
+  return below + 1 <= n / 2 ? { n, ties, bottom: true, rank: below + 1 } : { n, ties, bottom: false, rank: above + 1 };
+}
+
+const tieText = ties => (ties > 1 ? `（${ties} 個里並列）` : '');
+
 function rankText(p) {
   if (p.low_density) return '位於山區、每公頃不到 5 人，樹蔭主要來自山林，不列入排名。';
   if (p.hillside) return `里內 ${p.hillside_pct}% 是山坡保護區，樹蔭主要來自樹木資料沒有涵蓋的山林，不列入排名。`;
-  const n = state.meta.villages_scored, r = p.shade_rank_from_bottom, ties = p.shade_rank_ties || 1;
-  const tie = ties > 1 ? `（${ties} 個里並列）` : '';
-  // A tied group spans ranks r .. r + ties - 1 from the bottom; counted from the top it starts at n - (r + ties - 1) + 1.
-  return r <= n / 2
-    ? `全市 ${n} 個里中，樹蔭倒數第 ${r} 名${tie}。`
-    : `全市 ${n} 個里中，樹蔭排第 ${n - (r + ties - 1) + 1} 名${tie}。`;
+  const { n, ties, bottom, rank } = cityRank(p);
+  return `全市 ${n} 個里中，樹蔭${bottom ? '倒數' : '排'}第 ${rank} 名${tieText(ties)}。`;
+}
+
+function rankLines(p) {
+  if (unranked(p)) return `<p class="vc-rank">${rankText(p)}</p>`;
+  const c = cityRank(p), d = districtRank(p);
+  return `<div>
+    <p class="vc-rank"><span>全市 ${c.n} 個里中${c.bottom ? '倒數' : ''}第 <b>${c.rank}</b> 名${tieText(c.ties)}，</span><span>樹蔭${c.bottom ? '少' : '多'}於 <b>${c.pct}%</b> 的里</span></p>
+    <p class="vc-rank-sub">${esc(p.district)} ${d.n} 個里中${d.bottom ? '倒數' : ''}第 ${d.rank} 名${tieText(d.ties)}</p>
+  </div>`;
+}
+
+function mascot(p, animate) {
+  const cls = `mascot${animate ? ' pop' : ''}`;
+  if (unranked(p)) return `<img class="${cls} sticker" src="img/bird-wave.webp" alt="五色鳥在揮手">`;
+  const level = 1 + p.shade_class;
+  return `<img class="${cls}" src="img/shade-${level}.webp" alt="五色鳥${SHADE_SCENES[level - 1]}">`;
+}
+
+// The shade per person, retold as residents per tree from the same counts as the card (crowns are not 1 m² each,
+// so trees are counted, not shade). Left out for unranked villages, whose forest is not in the tree data.
+function treesPerPerson(p) {
+  if (unranked(p) || !p.population) return '';
+  const trees = p.street_trees + p.park_trees;
+  let icons, line;
+  if (trees === 0) {
+    icons = PERSON_ICON;
+    line = `里界 ${state.meta.boundary_buffer_m} m 內<strong>沒有</strong>行道樹或公園樹木`;
+  } else if (trees >= p.population) {
+    const each = trees / p.population;
+    icons = `<span class="tree">${'🌳'.repeat(Math.min(Math.round(each), 3))}</span>${PERSON_ICON}`;
+    line = `每人約分到 <strong>${each.toFixed(1)} 棵樹</strong>`;
+  } else {
+    const people = Math.round(p.population / trees);
+    icons = `<span class="tree">🌳</span>${PERSON_ICON.repeat(Math.min(people, 10))}${people > 10 ? '…' : ''}`;
+    line = `大約每 <strong>${fmt(people)} 人</strong>分 1 棵樹`;
+  }
+  return `<div class="vc-box"><div class="vc-icons" aria-hidden="true">${icons}</div><p>${line}</p></div>`;
+}
+
+// A sticker of the village's mood hops up where it was picked, then fades.
+let popMarker = null;
+function popSticker(p, lngLat) {
+  if (reducedMotion()) return;
+  const img = new Image();
+  img.src = `img/bird-${unranked(p) ? 'wave' : LEVEL_STICKERS[p.shade_class]}.webp`;
+  img.alt = '';
+  img.decode().then(() => {
+    img.width = img.naturalWidth / 2;  // the stickers are cut at 2x
+    const el = document.createElement('div');
+    el.className = 'map-pop';
+    el.append(img);
+    popMarker?.remove();
+    const marker = popMarker = new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat(lngLat).addTo(map);
+    img.addEventListener('animationend', () => marker.remove(), { once: true });
+  }).catch(() => {});
 }
 
 // track: count this as a lookup. Only user actions pass it, not a share link opening a village.
-function selectVillage(f, { fly = true, track = false } = {}) {
+// animate: a new pick (the card pops and a sticker hops up at `at`, or mid-village); re-renders for a tab switch pass false.
+function selectVillage(f, { fly = true, track = false, animate = true, at = null } = {}) {
   const p = f.properties;
   state.selected = p.code;
   if (track) trackLookup();
@@ -411,29 +519,44 @@ function selectVillage(f, { fly = true, track = false } = {}) {
   if (fly) map.fitBounds(f.bbox, { padding: padding(), maxZoom: 16 });
   // Only ?v= goes in the address bar, so a copied URL always opens on the default shade tab.
   history.replaceState(null, '', `?v=${encodeURIComponent(p.code)}`);
+  if (animate) {
+    const [[x0, y0], [x1, y1]] = f.bbox;
+    const spot = at || [(x0 + x1) / 2, (y0 + y1) / 2];
+    if (fly) map.once('moveend', () => popSticker(p, spot));
+    else popSticker(p, spot);
+  }
 
   const card = $('#village-card');
   card.hidden = false;
   card.innerHTML = `
-    <h2>${esc(p.district)} ${esc(p.village)}</h2>
-    ${treeMeter(p)}
-    <p class="headline">${p.shade_m2_per_person ?? '—'} m²<small>每人分到的樹蔭（估計）</small></p>
-    <p>${rankText(p)}</p>
-    <dl>
-      <dt>🌳 行道樹（含里界 ${state.meta.boundary_buffer_m} m 內）</dt><dd>${fmt(p.street_trees)} 棵</dd>
-      <dt>🌲 公園樹木（含里界 ${state.meta.boundary_buffer_m} m 內）</dt><dd>${fmt(p.park_trees)} 棵</dd>
-      <dt>人口</dt><dd>${fmt(p.population)}</dd>
-      <dt>65 歲以上</dt><dd>${p.elderly_pct ?? '—'}%</dd>
-      <dt>🌱 空樹穴 A / B / C</dt><dd>${fmt(p.pits_A)} / ${fmt(p.pits_B)} / ${fmt(p.pits_C)}</dd>
-      <dt>🪵 2024 年以來消失的樹</dt><dd>${fmt(p.disappeared)} 棵</dd>
+    <h2>${esc(p.village)}<small>${esc(p.district)}</small></h2>
+    <div class="vc-hero">
+      ${mascot(p, animate)}
+      <div>
+        ${treeMeter(p)}
+        <p class="big-num">${p.shade_m2_per_person ?? '—'}<small>m²</small></p>
+        <p class="big-label">每人分到的樹蔭（估計）</p>
+      </div>
+    </div>
+    ${treesPerPerson(p)}
+    ${rankLines(p)}
+    <dl class="vc-stats">
+      <div><dt>🌳 行道樹</dt><dd>${fmt(p.street_trees)} 棵</dd></div>
+      <div><dt>🌲 公園樹木</dt><dd>${fmt(p.park_trees)} 棵</dd></div>
+      <div><dt>人口</dt><dd>${fmt(p.population)}</dd></div>
+      <div><dt>65 歲以上</dt><dd>${p.elderly_pct ?? '—'}%</dd></div>
+      <div><dt>🌱 空樹穴 A/B/C</dt><dd>${fmt(p.pits_A)}/${fmt(p.pits_B)}/${fmt(p.pits_C)}</dd></div>
+      <div><dt>🪵 消失的樹</dt><dd>${fmt(p.disappeared)} 棵</dd></div>
     </dl>
+    <p class="hint">行道樹、公園樹木都含里界 ${state.meta.boundary_buffer_m} m 內的樹；消失的樹指 2024 年 11 月以來。</p>
     <div class="actions">
-      <button class="ghost" id="share-btn">分享這個里</button>
-      <a class="ghost" target="_blank" rel="noopener" href="https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(shareUrl(p))}">分享到 LINE</a>
+      <button class="primary" id="share-btn">分享這個里</button>
+      <a class="outline" target="_blank" rel="noopener" href="https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(shareUrl(p))}">分享到 LINE</a>
     </div>
     <p class="hint" id="share-status"></p>`;
   $('#share-btn').addEventListener('click', () => share(p));
-  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  // On a phone the card goes to the top of the sheet, so the bird and the number show without scrolling.
+  if (animate) card.scrollIntoView({ behavior: 'smooth', block: isMobile() ? 'start' : 'nearest' });
 }
 
 // Record one lookup per page load as a virtual pageview, so the public counter can report it per visitor.
@@ -481,7 +604,7 @@ async function share(p) {
 
 function showPointPopup(f) {
   const p = f.properties, coords = f.geometry.coordinates;
-  const html = f.layer.id === 'pits'
+  const html = f.source === 'pits'
     ? `<h4>空樹穴・${esc(PIT_TEXT[p.c][0])}</h4>
        <p>${esc(PIT_TEXT[p.c][1])}</p>
        <p>${esc(p.district)} ${esc(p.road || '附近沒有可對照的路名')}</p>
@@ -521,8 +644,13 @@ function renderAbout() {
 
 document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
   setMode(b.dataset.mode);
-  if (state.selected) selectVillage(state.byCode.get(state.selected), { fly: false });
+  if (state.selected) selectVillage(state.byCode.get(state.selected), { fly: false, animate: false });
 }));
+$('#sheet-handle').addEventListener('click', () => {
+  const open = $('#panel').classList.toggle('expanded');
+  $('#sheet-handle').setAttribute('aria-expanded', String(open));
+  $('#sheet-handle').setAttribute('aria-label', open ? '收合面板' : '展開面板');
+});
 document.querySelectorAll('.basemap .seg button').forEach(b => b.addEventListener('click', () => setBase(b.dataset.base)));
 
 let locateMarker = null;
@@ -538,7 +666,7 @@ $('#locate-btn').addEventListener('click', () => {
     if (!v) { hint.textContent = '你目前不在台北市，請直接點地圖上的里。'; return; }
     if (locateMarker) locateMarker.remove();
     locateMarker = new maplibregl.Marker({ color: '#0b0b0b' }).setLngLat([lon, lat]).addTo(map);
-    selectVillage(v, { track: true });
+    selectVillage(v, { track: true, at: [lon, lat] });
   }, err => {
     btn.textContent = '查我家附近';
     hint.textContent = `無法取得位置（${err.message}），請直接點地圖。`;
